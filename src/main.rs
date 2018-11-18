@@ -40,6 +40,13 @@ enum Opts {
         copy_back: bool,
 
         #[structopt(
+            short = "p",
+            long = "progress",
+            help = "show progress bar during file transfers"
+        )]
+        progress: bool,
+
+        #[structopt(
             long = "manifest-path",
             help = "Path to the manifest to execute",
             parse(from_os_str)
@@ -86,6 +93,7 @@ fn main() {
     let Opts::Remote{
         remote,
         copy_back,
+        progress,
         manifest_path,
         hidden,
         command,
@@ -139,9 +147,13 @@ fn main() {
     // transfer project to build server
     let mut rsync_to = Command::new("rsync");
     rsync_to.arg("-a".to_owned())
-        .arg("--delete")
-        .arg("--info=progress2")
-        .arg("--exclude")
+        .arg("--delete");
+
+    if progress {
+        rsync_to.arg("--info=progress2");
+    }
+
+    rsync_to.arg("--exclude")
         .arg("target");
 
     if !hidden {
