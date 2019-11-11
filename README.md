@@ -5,18 +5,21 @@
 user on your build host***
 
 ## Why I built it
+
 One big annoyance when working on rust projects on my notebook are the compile
 times. Since I'm using rust nightly for some of my projects I have to recompile
 rather often. Currently there seem to be no good remote-build integrations for
 rust, so I decided to build one my own.
 
 ## Planned capabilities
+
 This first version is very simple (could have been a bash script), but I intend to
 enhance it to a point where it detects compatibility between local and remote
 versions, allows (nearly) all cargo commands and maybe even load distribution
 over multiple machines.
 
 ## Usage
+
 For now only `cargo remote [FLAGS] [OPTIONS] <command>` works: it copies the
 current project to a temporary directory (`~/remote-builds/<project_name>`) on
 the remote server, calls `cargo <command>` remotely and optionally (`-c`) copies
@@ -26,22 +29,26 @@ and `rsync` need to be installed.
 
 If you want to pass remote flags you have to end the options/flags section using
 `--`. E.g. to build in release mode and copy back the result use:
+
 ```bash
 cargo remote -c -- build --release
 ```
 
 ### Configuration
+
 You can place a config file called `.cargo-remote.toml` in the same directory as your
 `Cargo.toml` or at `~/.config/cargo-remote/cargo-remote.toml`. There you can define a
 default remote build host and user. It can be overridden by the `-r` flag.
 
 Example config file:
+
 ```toml
 remote = "builds@myserver"
 ```
 
 ### Flags and options
-```
+
+```bash
 USAGE:
     cargo remote [FLAGS] [OPTIONS] <command> [remote options]...
 
@@ -65,9 +72,9 @@ ARGS:
 
 ```
 
-
 ## How to install
+
 ```bash
-git clone https://github.com/sgeisler/cargo-remote
-cargo install --path cargo-remote/
+git clone https://github.com/paritytech/cargo-remote
+cargo install --path cargo-remote/ -f
 ```
