@@ -78,3 +78,11 @@ ARGS:
 git clone https://github.com/paritytech/cargo-remote
 cargo install --path cargo-remote/ -f
 ```
+
+### MacOS Problems
+It was reported that the `rsync` version shipped with MacOS doesn't support the progress flag and thus fails when
+`cargo-remote` tries to use it. You can install a newer version by running
+```bash
+brew install rsync
+```
+See also [#10](https://github.com/sgeisler/cargo-remote/issues/10).
