@@ -4,8 +4,6 @@
 (at least for now). If you want to test it please create a VM or at least a separate
 user on your build host***
 
-
-
 ## Why I built it
 
 One big annoyance when working on rust projects on my notebook are the compile
@@ -75,8 +73,6 @@ ARGS:
 ```
 
 ## How to install
-
-It won't work on **Mac** until you update `brew install rsync`.
 
 ```bash
 git clone https://github.com/paritytech/cargo-remote
