@@ -162,7 +162,7 @@ fn main() {
             exit(-3);
         });
 
-    let build_path = format!("~/remote-builds/{:?}/", project_name);
+    let build_path = format!("~/remote-builds/{}/", project_name);
 
     info!("Transferring sources to build server.");
     // transfer project to build server
