@@ -30,11 +30,15 @@ chmod +x rustup-init; \
 ## 3 redis
 
 ```Bash
-protected mode no
+$ redis-cli
+# Following cmds type in `redis-cli` console
 
-maxmemory 50gb
-maxmemory-policy allkeys-lru
-service redis restart
+CONFIG SET protected-mode no
+CONFIG SET maxmemory 50gb
+CONFIG SET maxmemory-policy allkeys-lru
+exit
+
+$ systemctl restart redis-server
 ```
 
 <!--
