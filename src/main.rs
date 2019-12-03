@@ -227,7 +227,7 @@ fn main() {
             .arg("--delete")
             .arg("--compress")
             .arg("--info=progress2")
-            .arg(format!("{}:{}/target/{}", build_server, build_path, file_name))
+            .arg(format!("{}:{}target/{}", build_server, build_path, file_name))
             .arg(format!("{}/target/{}", project_dir.to_string_lossy(), file_name))
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
