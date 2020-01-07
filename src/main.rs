@@ -196,7 +196,7 @@ fn main() {
     info!("Environment profile: {:?}", env);
     info!("Build path: {:?}", build_path);
     let build_command = format!(
-        "source {}; rustup default {}; cd {}; {} cargo {} {}",
+        "/bin/bash -c 'source {}; rustup default {}; cd {}; {} cargo {} {}'",
         env,
         rustup_default,
         build_path,
