@@ -106,7 +106,10 @@ fn config_from_file(config_path: &Path) -> Option<Value> {
 }
 
 fn main() {
-    simple_logger::init().unwrap();
+    simple_logger::SimpleLogger
+        ::from_env()
+        .init()
+        .unwrap();
 
     let Opts::Remote {
         remote,
