@@ -3,7 +3,7 @@ use std::process::{exit, Command, Stdio};
 use structopt::StructOpt;
 use toml::Value;
 
-use log::{error, info, warn};
+use log::{error, warn, debug};
 
 const PROGRESS_FLAG: &str = "--info=progress2";
 
@@ -106,7 +106,10 @@ fn config_from_file(config_path: &Path) -> Option<Value> {
 }
 
 fn main() {
-    simple_logger::init().unwrap();
+    simple_logger::SimpleLogger
+        ::from_env()
+        .init()
+        .unwrap();
 
     let Opts::Remote {
         remote,
@@ -126,7 +129,7 @@ fn main() {
 
     let project_metadata = metadata_cmd.exec().unwrap();
     let project_dir = project_metadata.workspace_root;
-    info!("Project dir: {:?}", project_dir);
+    debug!("Project dir: {:?}", project_dir);
     let mut manifest_path = project_dir.clone();
     manifest_path.push("Cargo.toml");
     let project_name = project_metadata
@@ -135,12 +138,12 @@ fn main() {
         .find(|p| p.manifest_path == manifest_path)
         .map_or_else(
             || {
-                info!("No metadata found. Setting the remote dir name like the local. Or use --manifest_path for execute");
+                debug!("No metadata found. Setting the remote dir name like the local. Or use --manifest_path for execute");
                 project_dir.file_name().and_then(|x| x.to_str()).unwrap()
             },
             |p| &p.name,
         );
-    info!("Project name: {:?}", project_name);
+    debug!("Project name: {:?}", project_name);
     let configs = vec![
         config_from_file(&project_dir.join(".cargo-remote.toml")),
         xdg::BaseDirectories::with_prefix("cargo-remote")
@@ -162,16 +165,17 @@ fn main() {
             exit(-3);
         });
 
-    let build_path = format!("~/remote-builds/{:?}/", project_name);
+    let build_path = format!("~/remote-builds/{}/", project_name);
 
-    info!("Transferring sources to build server.");
+    debug!("Transferring sources to build server.");
     // transfer project to build server
     let mut rsync_to = Command::new("rsync");
     rsync_to
-        .arg("-a".to_owned())
+        .arg("-a")
+        .arg("-q")
         .arg("--delete")
         .arg("--compress")
-        .arg("--info=progress2")
+        .arg(PROGRESS_FLAG)
         .arg("--exclude")
         .arg("target");
 
@@ -192,9 +196,9 @@ fn main() {
             error!("Failed to transfer project to build server (error: {})", e);
             exit(-4);
         });
-    info!("Build ENV: {:?}", build_env);
-    info!("Environment profile: {:?}", env);
-    info!("Build path: {:?}", build_path);
+    debug!("Build ENV: {:?}", build_env);
+    debug!("Environment profile: {:?}", env);
+    debug!("Build path: {:?}", build_path);
     let build_command = format!(
         "source {}; rustup default {}; cd {}; {} cargo {} {}",
         env,
@@ -205,7 +209,7 @@ fn main() {
         options.join(" ")
     );
 
-    info!("Starting build process.");
+    debug!("Starting build process.");
     let output = Command::new("ssh")
         .arg("-t")
         .arg(&build_server)
@@ -220,14 +224,15 @@ fn main() {
         });
 
     if let Some(file_name) = copy_back {
-        info!("Transferring artifacts back to client.");
+        debug!("Transferring artifacts back to client.");
         let file_name = file_name.unwrap_or_else(String::new);
         Command::new("rsync")
             .arg("-a")
+            .arg("-q")
             .arg("--delete")
             .arg("--compress")
-            .arg("--info=progress2")
-            .arg(format!("{}:{}/target/{}", build_server, build_path, file_name))
+            .arg(PROGRESS_FLAG)
+            .arg(format!("{}:{}target/{}", build_server, build_path, file_name))
             .arg(format!("{}/target/{}", project_dir.to_string_lossy(), file_name))
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
@@ -243,12 +248,13 @@ fn main() {
     }
 
     if !no_copy_lock {
-        info!("Transferring Cargo.lock file back to client.");
+        debug!("Transferring Cargo.lock file back to client.");
         Command::new("rsync")
             .arg("-a")
+            .arg("-q")
             .arg("--delete")
             .arg("--compress")
-            .arg("--info=progress2")
+            .arg(PROGRESS_FLAG)
             .arg(format!("{}:{}/Cargo.lock", build_server, build_path))
             .arg(format!("{}/Cargo.lock", project_dir.to_string_lossy()))
             .stdout(Stdio::inherit())
