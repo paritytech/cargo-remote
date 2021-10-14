@@ -1,27 +1,49 @@
 stages:
   - audit
   - build
-image:                             ${REGISTRY}/parity-ci-linux:latest
 
 variables:
   GIT_STRATEGY:                    fetch
-  GIT_SUBMODULE_STRATEGY:          recursive
-  CI_SERVER_NAME:                  "GitLab CI"
-  CARGO_HOME:                      "/ci-cache/${CI_PROJECT_NAME}/cargo/${CI_JOB_NAME}"
-  CARGO_TARGET:                    x86_64-unknown-linux-gnu
-  REGISTRY:                        registry.parity.io/parity/infrastructure/scripts
+  GIT_DEPTH:                       100
+  CARGO_INCREMENTAL:               0
+  CARGO_TARGET_DIR:                "/ci-cache/${CI_PROJECT_NAME}/targets/${CI_COMMIT_REF_NAME}/${CI_JOB_NAME}"
+  CI_IMAGE:                        "paritytech/ci-linux:production"
+
+.rust-info-script:                 &rust-info-script
+  - rustup show
+  - cargo --version
+  - rustup +nightly show
+  - cargo +nightly --version
+  - bash --version
+  - sccache -s
+
+.docker-env:                       &docker-env
+  image:                           "${CI_IMAGE}"
+  before_script:
+    - *rust-info-script
+    - ./scripts/ci/pre_cache.sh
+    - sccache -s
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - unknown_failure
+      - api_failure
+  interruptible:                   true
+  tags:
+    - linux-docker
 
 cargo_audit:
   stage:                           audit
+  <<:                              *docker-env
   script:
+    - cargo install cargo-audit
     - cargo audit
-  tags:
-    - linux-docker
   allow_failure:                   true
-  
+
 cargo_remote_build:
   stage:                           build
+  <<:                              *docker-env
   script:
     - cargo build --release
-  tags:
-    - linux-docker
+
