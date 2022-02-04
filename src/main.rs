@@ -127,7 +127,17 @@ fn main() {
     let mut metadata_cmd = cargo_metadata::MetadataCommand::new();
     metadata_cmd.manifest_path(manifest_path).no_deps();
 
-    let project_metadata = metadata_cmd.exec().unwrap();
+    let project_metadata = match metadata_cmd.exec() {
+        Ok(m) => m,
+        Err(cargo_metadata::Error::CargoMetadata { stderr }) => {
+            eprintln!("Cargo Metadata Execution Error:\n{}", stderr);
+            exit(1)
+        },
+        Err(e) => {
+            eprintln!("Cargo Metadata Error:\n{:?}", e);
+            exit(1)
+        },
+    };
     let project_dir = project_metadata.workspace_root;
     debug!("Project dir: {:?}", project_dir);
     let mut manifest_path = project_dir.clone();
