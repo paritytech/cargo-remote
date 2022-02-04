@@ -130,11 +130,11 @@ fn main() {
     let project_metadata = match metadata_cmd.exec() {
         Ok(m) => m,
         Err(cargo_metadata::Error::CargoMetadata { stderr }) => {
-            eprintln!("Cargo Metadata Execution Error:\n{}", stderr);
+            error!("Cargo Metadata execution failed:\n{}", stderr);
             exit(1)
         },
         Err(e) => {
-            eprintln!("Cargo Metadata Error:\n{:?}", e);
+            error!("Cargo Metadata failed:\n{:?}", e);
             exit(1)
         },
     };
