@@ -8,8 +8,6 @@ use log::{debug, error, warn};
 
 const PROGRESS_FLAG: &str = "--info=progress2";
 
-use toml_edit::visit::*;
-
 mod patches;
 
 #[derive(StructOpt, Debug)]

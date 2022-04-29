@@ -6,7 +6,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{exit, Command, Stdio};
 use tempfile::NamedTempFile;
-use toml_edit::Document;
+use toml_edit::{Document, InlineTable};
 
 pub fn locate_workspace_folder(mut crate_path: PathBuf) -> Result<PathBuf, String> {
     let cargo = std::env::var("CARGO").unwrap_or("cargo".to_owned());
@@ -56,64 +56,80 @@ fn extract_patched_crates_and_adjust_toml<F: Fn(PathBuf) -> Result<PathBuf, Stri
     locate_workspace: F,
 ) -> Option<(Document, Vec<PatchProject>)> {
     let mut manifest = manifest_content.parse::<Document>().expect("invalid doc");
-    let mut known_projects: Vec<PatchProject> = Vec::new();
+    let mut workspaces_to_copy: Vec<PatchProject> = Vec::new();
 
-    // A list of patched crates like
-    // some-crate = { path = "/some/path" }
-    let patched_crates = manifest["patch"]
-        .as_table_mut()
-        .map(|patch| patch.iter_mut().filter_map(|tli| tli.1.as_table_mut()));
+    // A list of inline tables like
+    // { path = "/some/path" }
+    let patched_paths: Option<Vec<&mut InlineTable>> =
+        manifest["patch"].as_table_mut().map(|patch| {
+            patch
+                .iter_mut()
+                .filter_map(|(_, crate_table)| crate_table.as_table_mut())
+                .flat_map(|crate_table| {
+                    crate_table
+                        .iter_mut()
+                        .filter_map(|(_, patch_table)| patch_table.as_inline_table_mut())
+                })
+                .collect()
+        });
 
-    if patched_crates.is_none() {
+    if patched_paths.is_none() {
         log::debug!("No patches in project.");
         return None;
     }
 
-    for crate_level_item in patched_crates.unwrap() {
-        for table in crate_level_item
-            .iter_mut()
-            .filter_map(|(_, patch_table)| patch_table.as_inline_table_mut())
-        {
-            if let Some(path) = table.get("path") {
-                let path = PathBuf::from(path.as_str().unwrap().clone());
-                let known_project = known_projects
-                    .iter()
-                    .find(|known_target| path.starts_with(&known_target.local_path));
-                match known_project {
-                    None => {
-                        // Project is unknown and needs to be copied
-                        let path_to_copy = locate_workspace(path.clone())
-                            .expect("Can not determine workspace path");
-                        let name = path_to_copy.file_name().unwrap().to_owned();
-                        let mut remote_folder = PathBuf::from("../patches");
-                        remote_folder.push(name.clone());
-                        log::info!(
-                            "Found project '{:?}', will copy to '{:?}'",
-                            &path_to_copy,
-                            remote_folder
-                        );
+    for inline_crate_table in patched_paths.unwrap() {
+        // We only act if there is a path given for a crate
+        if let Some(path) = inline_crate_table.get("path") {
+            let path = PathBuf::from(path.as_str().unwrap().clone());
 
-                        known_projects.push(PatchProject::new(
-                            name,
-                            path_to_copy.clone(),
-                            remote_folder.clone(),
-                        ));
-                        let mut new_path = remote_folder.clone();
-                        new_path.push(path.strip_prefix(path_to_copy).expect("Jawoll"));
-                        table.insert("path", toml_edit::Value::from(new_path.to_str().unwrap()));
-                    }
+            // Check if the current crate is located in a subfolder of a workspace we
+            // already know.
+            let known_workspace = workspaces_to_copy
+                .iter()
+                .find(|known_target| path.starts_with(&known_target.local_path));
+            match known_workspace {
+                None => {
+                    // Project is unknown and needs to be copied
+                    let workspace_folder_path =
+                        locate_workspace(path.clone()).expect("Can not determine workspace path");
+                    let workspace_folder_name =
+                        workspace_folder_path.file_name().unwrap().to_owned();
 
-                    Some(patch_target) => {
-                        let mut new_path = patch_target.remote_path.clone();
-                        new_path.push(path.strip_prefix(&patch_target.local_path).expect("Jawoll"));
-                        table.insert("path", toml_edit::Value::from(new_path.to_str().unwrap()));
-                    }
+                    let mut remote_folder = PathBuf::from("../");
+                    remote_folder.push(workspace_folder_name.clone());
+
+                    log::debug!(
+                        "Found referenced project '{:?}', will copy to '{:?}'",
+                        &workspace_folder_path,
+                        &remote_folder
+                    );
+
+                    // Add workspace to the list so it will be rsynced to the remote server
+                    workspaces_to_copy.push(PatchProject::new(
+                        workspace_folder_name,
+                        workspace_folder_path.clone(),
+                        remote_folder.clone(),
+                    ));
+
+                    // Build a new path for the crate relative to the workspace folder
+                    remote_folder.push(path.strip_prefix(workspace_folder_path).expect("Jawoll"));
+                    inline_crate_table.insert(
+                        "path",
+                        toml_edit::Value::from(remote_folder.to_str().unwrap()),
+                    );
+                }
+
+                Some(patch_target) => {
+                    let mut new_path = patch_target.remote_path.clone();
+                    new_path.push(path.strip_prefix(&patch_target.local_path).expect("Jawoll"));
+                    inline_crate_table
+                        .insert("path", toml_edit::Value::from(new_path.to_str().unwrap()));
                 }
             }
         }
     }
-    log::info!("patches: {:?}", known_projects);
-    Some((manifest, known_projects))
+    Some((manifest, workspaces_to_copy))
 }
 
 /// Handle patched dependencies in a Cargo.toml file.
@@ -154,14 +170,6 @@ fn copy_patches_to_remote(
     patched_cargo_file: NamedTempFile,
     projects_to_copy: Vec<PatchProject>,
 ) {
-    log::info!(
-        "Found patches in project. Copying {} ({:?}) projects.",
-        projects_to_copy.len(),
-        projects_to_copy
-            .iter()
-            .map(|p| &p.name)
-            .collect::<Vec<&OsString>>()
-    );
     for patch_operation in projects_to_copy.iter() {
         let local_proj_path = format!("{}/", patch_operation.local_path.to_string_lossy());
         let remote_proj_path = format!(
@@ -169,8 +177,8 @@ fn copy_patches_to_remote(
             build_server,
             patch_operation.remote_path.to_string_lossy()
         );
-        log::info!(
-            "Copying {:?} from {} to {}.",
+        log::debug!(
+            "Copying workspace {:?} from {} to {}.",
             patch_operation.name,
             &local_proj_path,
             &remote_proj_path
@@ -204,7 +212,7 @@ fn copy_patches_to_remote(
     let local_toml_path = patched_cargo_file.path().to_string_lossy();
     let remote_toml_path = format!("{}:{}/Cargo.toml", build_server, build_path);
     log::debug!(
-        "Copying Cargo.toml from {} to {}.",
+        "Transferring Cargo.toml from {} to {}.",
         &local_toml_path,
         &remote_toml_path
     );
@@ -247,12 +255,12 @@ git-patched-crate = { git = "https://some-url/test/test" }
         let expect = r#"
 "hello" = 'toml!'
 [patch.a]
-a-crate = { path = "../patches/a/src/a-crate" }
-a-other-crate = { path = "../patches/a/src/subfolder/a-other-crate" }
+a-crate = { path = "../a/src/a-crate" }
+a-other-crate = { path = "../a/src/subfolder/a-other-crate" }
 git-patched-crate = { git = "https://some-url/test/test" }
 [patch.b]
-b-crate = { path = "../patches/b/src/b-crate" }
-b-other-crate = { path = "../patches/b/src/subfolder/b-other-crate" }
+b-crate = { path = "../b/src/b-crate" }
+b-other-crate = { path = "../b/src/subfolder/b-other-crate" }
 git-patched-crate = { git = "https://some-url/test/test" }
 "#
         .to_string();
