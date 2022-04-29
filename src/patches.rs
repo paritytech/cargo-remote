@@ -51,28 +51,29 @@ impl PatchProject {
     }
 }
 
-fn extract_patched_projects_and_patch_manifest<F: Fn(PathBuf) -> Result<PathBuf, String>>(
+fn extract_patched_crates_and_adjust_toml<F: Fn(PathBuf) -> Result<PathBuf, String>>(
     manifest_content: String,
     locate_workspace: F,
 ) -> Option<(Document, Vec<PatchProject>)> {
     let mut manifest = manifest_content.parse::<Document>().expect("invalid doc");
     let mut known_projects: Vec<PatchProject> = Vec::new();
 
-    let patches = manifest["patch"].as_table_mut();
-    log::info!("{:?}", patches);
-    if patches.is_none() {
+    // A list of patched crates like
+    // some-crate = { path = "/some/path" }
+    let patched_crates = manifest["patch"]
+        .as_table_mut()
+        .map(|patch| patch.iter_mut().filter_map(|tli| tli.1.as_table_mut()));
+
+    if patched_crates.is_none() {
         log::debug!("No patches in project.");
         return None;
     }
 
-    let patches = patches.unwrap();
-
-    for crate_level_item in patches.iter_mut().filter_map(|tli| tli.1.as_table_mut()) {
-        for table in crate_level_item.iter_mut().filter_map(|kv| {
-            kv.1.as_value_mut()
-                .map(|f| f.as_inline_table_mut())
-                .flatten()
-        }) {
+    for crate_level_item in patched_crates.unwrap() {
+        for table in crate_level_item
+            .iter_mut()
+            .filter_map(|(_, patch_table)| patch_table.as_inline_table_mut())
+        {
             if let Some(path) = table.get("path") {
                 let path = PathBuf::from(path.as_str().unwrap().clone());
                 let known_project = known_projects
@@ -132,9 +133,9 @@ pub fn handle_patches(
     let cargo_file_content = std::fs::read_to_string(manifest_path)
         .ok()
         .expect("Shold work");
-    let maybe_patches = extract_patched_projects_and_patch_manifest(cargo_file_content, |p| {
-        locate_workspace_folder(p)
-    });
+
+    let maybe_patches =
+        extract_patched_crates_and_adjust_toml(cargo_file_content, |p| locate_workspace_folder(p));
 
     if let Some((patched_cargo_doc, project_list)) = maybe_patches {
         let mut tmp_cargo_file = NamedTempFile::new().expect("No tempfile for us");
@@ -227,7 +228,7 @@ fn copy_patches_to_remote(
 mod tests {
     use std::path::PathBuf;
 
-    use crate::patches::extract_patched_projects_and_patch_manifest;
+    use crate::patches::extract_patched_crates_and_adjust_toml;
 
     #[test]
     fn simple_modification_replaces_path() {
@@ -256,7 +257,7 @@ git-patched-crate = { git = "https://some-url/test/test" }
 "#
         .to_string();
 
-        let result = extract_patched_projects_and_patch_manifest(input, |p| {
+        let result = extract_patched_crates_and_adjust_toml(input, |p| {
             if p.starts_with("/some/prefix/a") {
                 return Ok(PathBuf::from("/some/prefix/a"));
             } else if p.starts_with("/some/prefix/b") {

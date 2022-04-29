@@ -8,6 +8,8 @@ use log::{debug, error, warn};
 
 const PROGRESS_FLAG: &str = "--info=progress2";
 
+use toml_edit::visit::*;
+
 mod patches;
 
 #[derive(StructOpt, Debug)]
@@ -191,6 +193,7 @@ fn main() {
         });
 
     patches::handle_patches(&build_path, &build_server, manifest_path.clone());
+
     debug!("Transferring sources to build server.");
     // transfer project to build server
     let mut rsync_to = Command::new("rsync");
