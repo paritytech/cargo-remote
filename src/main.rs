@@ -190,7 +190,11 @@ fn main() {
             exit(-3);
         });
 
-    patches::handle_patches(&build_path, &build_server, manifest_path.clone());
+    patches::handle_patches(&build_path, &build_server, manifest_path.clone()).unwrap_or_else(
+        |err| {
+            log::error!("Could not transfer patched workspaces to remote: {}", err);
+        },
+    );
 
     debug!("Transferring sources to build server.");
     // transfer project to build server

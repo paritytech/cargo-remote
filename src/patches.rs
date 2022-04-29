@@ -18,7 +18,7 @@ pub fn locate_workspace_folder(mut crate_path: PathBuf) -> Result<PathBuf, Strin
         .arg("--manifest-path")
         .arg(crate_path.as_os_str().clone())
         .output()
-        .expect("jojo");
+        .map_err(|err| format!("Unable to execute cargo locate-project: {:?}", err))?;
 
     if !output.status.success() {
         return Err(format!("{:?}", output.status));
@@ -54,8 +54,13 @@ impl PatchProject {
 fn extract_patched_crates_and_adjust_toml<F: Fn(PathBuf) -> Result<PathBuf, String>>(
     manifest_content: String,
     locate_workspace: F,
-) -> Option<(Document, Vec<PatchProject>)> {
-    let mut manifest = manifest_content.parse::<Document>().expect("invalid doc");
+) -> Result<Option<(Document, Vec<PatchProject>)>, String> {
+    let mut manifest = manifest_content.parse::<Document>().map_err(|err| {
+        format!(
+            "Unable to parse Cargo.toml: {:?} content: {}",
+            err, manifest_content
+        )
+    })?;
     let mut workspaces_to_copy: Vec<PatchProject> = Vec::new();
 
     // A list of inline tables like
@@ -75,7 +80,7 @@ fn extract_patched_crates_and_adjust_toml<F: Fn(PathBuf) -> Result<PathBuf, Stri
 
     if patched_paths.is_none() {
         log::debug!("No patches in project.");
-        return None;
+        return Ok(None);
     }
 
     for inline_crate_table in patched_paths.unwrap() {
@@ -91,8 +96,13 @@ fn extract_patched_crates_and_adjust_toml<F: Fn(PathBuf) -> Result<PathBuf, Stri
             match known_workspace {
                 None => {
                     // Project is unknown and needs to be copied
-                    let workspace_folder_path =
-                        locate_workspace(path.clone()).expect("Can not determine workspace path");
+                    let workspace_folder_path = locate_workspace(path.clone()).map_err(|err| {
+                        format!(
+                            "Can not determine workspace path for project at {}: {:?}",
+                            &path.to_string_lossy(),
+                            err
+                        )
+                    })?;
                     let workspace_folder_name =
                         workspace_folder_path.file_name().unwrap().to_owned();
 
@@ -113,7 +123,10 @@ fn extract_patched_crates_and_adjust_toml<F: Fn(PathBuf) -> Result<PathBuf, Stri
                     ));
 
                     // Build a new path for the crate relative to the workspace folder
-                    remote_folder.push(path.strip_prefix(workspace_folder_path).expect("Jawoll"));
+                    remote_folder.push(path.strip_prefix(workspace_folder_path).map_err(
+                        |err| format!("Unable to construct remote folder path: {}", err),
+                    )?);
+
                     inline_crate_table.insert(
                         "path",
                         toml_edit::Value::from(remote_folder.to_str().unwrap()),
@@ -122,14 +135,17 @@ fn extract_patched_crates_and_adjust_toml<F: Fn(PathBuf) -> Result<PathBuf, Stri
 
                 Some(patch_target) => {
                     let mut new_path = patch_target.remote_path.clone();
-                    new_path.push(path.strip_prefix(&patch_target.local_path).expect("Jawoll"));
+                    new_path.push(path.strip_prefix(&patch_target.local_path).map_err(|err| {
+                        format!("Unable to construct remote folder path: {}", err)
+                    })?);
+
                     inline_crate_table
                         .insert("path", toml_edit::Value::from(new_path.to_str().unwrap()));
                 }
             }
         }
     }
-    Some((manifest, workspaces_to_copy))
+    Ok(Some((manifest, workspaces_to_copy)))
 }
 
 /// Handle patched dependencies in a Cargo.toml file.
@@ -146,18 +162,22 @@ pub fn handle_patches(
     build_server: &String,
     manifest_path: Utf8PathBuf,
 ) -> Result<(), String> {
-    let cargo_file_content = std::fs::read_to_string(manifest_path)
-        .ok()
-        .expect("Shold work");
+    let cargo_file_content = std::fs::read_to_string(&manifest_path).map_err(|err| {
+        format!(
+            "Unable to read cargo manifest at {}: {:?}",
+            manifest_path, err
+        )
+    })?;
 
     let maybe_patches =
         extract_patched_crates_and_adjust_toml(cargo_file_content, |p| locate_workspace_folder(p));
 
-    if let Some((patched_cargo_doc, project_list)) = maybe_patches {
-        let mut tmp_cargo_file = NamedTempFile::new().expect("No tempfile for us");
+    if let Ok(Some((patched_cargo_doc, project_list))) = maybe_patches {
+        let mut tmp_cargo_file = NamedTempFile::new()
+            .map_err(|err| format!("Unable to create a temporary file: {}", err))?;
         tmp_cargo_file
             .write_all(patched_cargo_doc.to_string().as_bytes())
-            .expect("Unable to write file");
+            .map_err(|err| format!("Unable to write temporary file: {}", err))?;
 
         copy_patches_to_remote(&build_path, &build_server, tmp_cargo_file, project_list);
     }
@@ -246,6 +266,7 @@ mod tests {
 a-crate = { path = "/some/prefix/a/src/a-crate" }
 a-other-crate = { path = "/some/prefix/a/src/subfolder/a-other-crate" }
 git-patched-crate = { git = "https://some-url/test/test" }
+a-crate-different-folder = { path = "/some/prefix/a-2/src/subfolder/a-crate-different-folder" }
 [patch.b]
 b-crate = { path = "/some/prefix/b/src/b-crate" }
 b-other-crate = { path = "/some/prefix/b/src/subfolder/b-other-crate" }
@@ -258,6 +279,7 @@ git-patched-crate = { git = "https://some-url/test/test" }
 a-crate = { path = "../a/src/a-crate" }
 a-other-crate = { path = "../a/src/subfolder/a-other-crate" }
 git-patched-crate = { git = "https://some-url/test/test" }
+a-crate-different-folder = { path = "../a-2/src/subfolder/a-crate-different-folder" }
 [patch.b]
 b-crate = { path = "../b/src/b-crate" }
 b-other-crate = { path = "../b/src/subfolder/b-other-crate" }
@@ -268,11 +290,14 @@ git-patched-crate = { git = "https://some-url/test/test" }
         let result = extract_patched_crates_and_adjust_toml(input, |p| {
             if p.starts_with("/some/prefix/a") {
                 return Ok(PathBuf::from("/some/prefix/a"));
+            } else if p.starts_with("/some/prefix/a-2") {
+                return Ok(PathBuf::from("/some/prefix/a-2"));
             } else if p.starts_with("/some/prefix/b") {
                 return Ok(PathBuf::from("/some/prefix/b"));
             }
             Err("Invalid Path".to_string())
         })
+        .expect("Toml patching failed")
         .unwrap();
         assert_eq!(result.0.to_string(), expect);
     }
