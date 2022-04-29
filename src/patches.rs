@@ -193,9 +193,9 @@ fn copy_patches_to_remote(
     for patch_operation in projects_to_copy.iter() {
         let local_proj_path = format!("{}/", patch_operation.local_path.to_string_lossy());
         let remote_proj_path = format!(
-            "{}:{}",
+            "{}:remote-builds/{}",
             build_server,
-            patch_operation.remote_path.to_string_lossy()
+            patch_operation.name.to_string_lossy()
         );
         log::debug!(
             "Copying workspace {:?} from {} to {}.",
@@ -216,7 +216,7 @@ fn copy_patches_to_remote(
             .arg("--exclude")
             .arg(".*")
             .arg("--rsync-path")
-            .arg("mkdir -p remote-builds/patches && rsync")
+            .arg("mkdir -p remote-builds && rsync")
             .arg(local_proj_path)
             .arg(remote_proj_path)
             .stdout(Stdio::inherit())

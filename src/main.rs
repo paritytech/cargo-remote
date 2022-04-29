@@ -190,12 +190,6 @@ fn main() {
             exit(-3);
         });
 
-    patches::handle_patches(&build_path, &build_server, manifest_path.clone()).unwrap_or_else(
-        |err| {
-            log::error!("Could not transfer patched workspaces to remote: {}", err);
-        },
-    );
-
     debug!("Transferring sources to build server.");
     // transfer project to build server
     let mut rsync_to = Command::new("rsync");
@@ -227,7 +221,9 @@ fn main() {
         });
 
     if !ignore_patches {
-        patches::handle_patches(&build_path, &build_server, manifest_path);
+        patches::handle_patches(&build_path, &build_server, manifest_path).unwrap_or_else(|err| {
+            log::error!("Could not transfer patched workspaces to remote: {}", err);
+        });
     } else {
         log::debug!("Patches were found but ignores due to command line flag.");
     }
