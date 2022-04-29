@@ -8,7 +8,43 @@ use std::process::{exit, Command, Stdio};
 use tempfile::NamedTempFile;
 use toml_edit::{Document, InlineTable};
 
-pub fn locate_workspace_folder(mut crate_path: PathBuf) -> Result<PathBuf, String> {
+/// Handle patched dependencies in a Cargo.toml file.
+/// Adjustments are only needed when patches point to local files.
+/// Steps:
+/// 1. Read Cargo.toml of project
+/// 2. Extract list of patches
+/// 3. For each patched crate, check if there is a path given. If not, ignore.
+/// 4. Find the workspace of the patched crate via `cargo locate-project --workspace`
+/// 5. Add workspace to the list of projects that need to be copied
+/// 6. Copy folders via rsync
+pub fn handle_patches(
+    build_path: &String,
+    build_server: &String,
+    manifest_path: Utf8PathBuf,
+) -> Result<(), String> {
+    let cargo_file_content = std::fs::read_to_string(&manifest_path).map_err(|err| {
+        format!(
+            "Unable to read cargo manifest at {}: {:?}",
+            manifest_path, err
+        )
+    })?;
+
+    let maybe_patches =
+        extract_patched_crates_and_adjust_toml(cargo_file_content, |p| locate_workspace_folder(p));
+
+    if let Ok(Some((patched_cargo_doc, project_list))) = maybe_patches {
+        let mut tmp_cargo_file = NamedTempFile::new()
+            .map_err(|err| format!("Unable to create a temporary file: {}", err))?;
+        tmp_cargo_file
+            .write_all(patched_cargo_doc.to_string().as_bytes())
+            .map_err(|err| format!("Unable to write temporary file: {}", err))?;
+
+        copy_patches_to_remote(&build_path, &build_server, tmp_cargo_file, project_list);
+    }
+    Ok(())
+}
+
+fn locate_workspace_folder(mut crate_path: PathBuf) -> Result<PathBuf, String> {
     let cargo = std::env::var("CARGO").unwrap_or("cargo".to_owned());
     log::debug!("Checking workspace root of path {:?}", crate_path);
     crate_path.push("Cargo.toml");
@@ -35,7 +71,7 @@ pub fn locate_workspace_folder(mut crate_path: PathBuf) -> Result<PathBuf, Strin
 }
 
 #[derive(Debug, Clone)]
-pub struct PatchProject {
+struct PatchProject {
     pub name: OsString,
     pub local_path: PathBuf,
     pub remote_path: PathBuf,
@@ -146,42 +182,6 @@ fn extract_patched_crates_and_adjust_toml<F: Fn(PathBuf) -> Result<PathBuf, Stri
         }
     }
     Ok(Some((manifest, workspaces_to_copy)))
-}
-
-/// Handle patched dependencies in a Cargo.toml file.
-/// Adjustments are only needed when patches point to local files.
-/// Steps:
-/// 1. Read Cargo.toml of project
-/// 2. Extract list of patches
-/// 3. For each patched crate, check if there is a path given. If not, ignore.
-/// 4. Find the workspace of the patched crate via `cargo locate-project --workspace`
-/// 5. Add workspace to the list of projects that need to be copied
-/// 6. Copy folders via rsync
-pub fn handle_patches(
-    build_path: &String,
-    build_server: &String,
-    manifest_path: Utf8PathBuf,
-) -> Result<(), String> {
-    let cargo_file_content = std::fs::read_to_string(&manifest_path).map_err(|err| {
-        format!(
-            "Unable to read cargo manifest at {}: {:?}",
-            manifest_path, err
-        )
-    })?;
-
-    let maybe_patches =
-        extract_patched_crates_and_adjust_toml(cargo_file_content, |p| locate_workspace_folder(p));
-
-    if let Ok(Some((patched_cargo_doc, project_list))) = maybe_patches {
-        let mut tmp_cargo_file = NamedTempFile::new()
-            .map_err(|err| format!("Unable to create a temporary file: {}", err))?;
-        tmp_cargo_file
-            .write_all(patched_cargo_doc.to_string().as_bytes())
-            .map_err(|err| format!("Unable to write temporary file: {}", err))?;
-
-        copy_patches_to_remote(&build_path, &build_server, tmp_cargo_file, project_list);
-    }
-    Ok(())
 }
 
 fn copy_patches_to_remote(

@@ -172,7 +172,8 @@ fn main() {
             .and_then(|base| base.find_config_file("cargo-remote.toml"))
             .and_then(|p| {
                 config_from_file(
-                    &Utf8PathBuf::from_path_buf(p).expect("valid Unicode path succeeded"),
+                    &Utf8PathBuf::from_path_buf(p)
+                        .expect("Unable to transform pathbuf into Utf8PathBuf"),
                 )
             }),
     ];
