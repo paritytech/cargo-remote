@@ -1,11 +1,8 @@
 use crate::PROGRESS_FLAG;
-use camino::Utf8PathBuf;
-use log::error;
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::{exit, Command, Stdio};
-use tempfile::NamedTempFile;
+use std::process::{Command, Stdio};
 use toml_edit::{Document, InlineTable};
 
 /// Handle patched dependencies in a Cargo.toml file.
@@ -20,54 +17,40 @@ use toml_edit::{Document, InlineTable};
 pub fn handle_patches(
     build_path: &String,
     build_server: &String,
-    manifest_path: Utf8PathBuf,
+    manifest_path: PathBuf,
 ) -> Result<(), String> {
     let cargo_file_content = std::fs::read_to_string(&manifest_path).map_err(|err| {
         format!(
             "Unable to read cargo manifest at {}: {:?}",
-            manifest_path, err
+            manifest_path.display(),
+            err
         )
     })?;
 
     let maybe_patches =
-        extract_patched_crates_and_adjust_toml(cargo_file_content, |p| locate_workspace_folder(p));
+        extract_patched_crates_and_adjust_toml(cargo_file_content, |p| locate_workspace_folder(p))?;
 
-    if let Ok(Some((patched_cargo_doc, project_list))) = maybe_patches {
-        let mut tmp_cargo_file = NamedTempFile::new()
-            .map_err(|err| format!("Unable to create a temporary file: {}", err))?;
-        tmp_cargo_file
-            .write_all(patched_cargo_doc.to_string().as_bytes())
-            .map_err(|err| format!("Unable to write temporary file: {}", err))?;
-
-        copy_patches_to_remote(&build_path, &build_server, tmp_cargo_file, project_list);
+    if let Some((patched_cargo_doc, project_list)) = maybe_patches {
+        copy_patches_to_remote(&build_path, &build_server, patched_cargo_doc, project_list)?;
     }
     Ok(())
 }
 
 fn locate_workspace_folder(mut crate_path: PathBuf) -> Result<PathBuf, String> {
-    let cargo = std::env::var("CARGO").unwrap_or("cargo".to_owned());
-    log::debug!("Checking workspace root of path {:?}", crate_path);
     crate_path.push("Cargo.toml");
-    let output = Command::new(cargo)
-        .arg("locate-project")
-        .arg("--workspace")
-        .arg("--manifest-path")
-        .arg(crate_path.as_os_str().clone())
-        .output()
-        .map_err(|err| format!("Unable to execute cargo locate-project: {:?}", err))?;
+    let metadata_cmd = cargo_metadata::MetadataCommand::new()
+        .manifest_path(&crate_path)
+        .no_deps()
+        .exec()
+        .map_err(|err| {
+            format!(
+                "Unable to call cargo metadata on path {}: {:?}",
+                crate_path.display(),
+                err
+            )
+        })?;
 
-    if !output.status.success() {
-        return Err(format!("{:?}", output.status));
-    }
-
-    let output = String::from_utf8(output.stdout).map_err(|e| e.to_string())?;
-    let parsed = json::parse(&output).map_err(|e| e.to_string())?;
-    let root = parsed["root"].as_str().ok_or(String::from("no root"))?;
-    let mut result = PathBuf::from(root);
-
-    // Remove the trailing "/Cargo.toml"
-    result.pop();
-    Ok(result)
+    Ok(metadata_cmd.workspace_root.into_std_path_buf())
 }
 
 #[derive(Debug, Clone)]
@@ -134,8 +117,8 @@ fn extract_patched_crates_and_adjust_toml<F: Fn(PathBuf) -> Result<PathBuf, Stri
                     // Project is unknown and needs to be copied
                     let workspace_folder_path = locate_workspace(path.clone()).map_err(|err| {
                         format!(
-                            "Can not determine workspace path for project at {}: {:?}",
-                            &path.to_string_lossy(),
+                            "Can not determine workspace path for project at {}: {}",
+                            &path.display(),
                             err
                         )
                     })?;
@@ -146,9 +129,9 @@ fn extract_patched_crates_and_adjust_toml<F: Fn(PathBuf) -> Result<PathBuf, Stri
                     remote_folder.push(workspace_folder_name.clone());
 
                     log::debug!(
-                        "Found referenced project '{:?}', will copy to '{:?}'",
-                        &workspace_folder_path,
-                        &remote_folder
+                        "Found referenced project '{}', will copy to '{}'",
+                        &workspace_folder_path.display(),
+                        &remote_folder.display()
                     );
 
                     // Add workspace to the list so it will be rsynced to the remote server
@@ -187,11 +170,11 @@ fn extract_patched_crates_and_adjust_toml<F: Fn(PathBuf) -> Result<PathBuf, Stri
 fn copy_patches_to_remote(
     build_path: &String,
     build_server: &String,
-    patched_cargo_file: NamedTempFile,
+    patched_cargo_doc: Document,
     projects_to_copy: Vec<PatchProject>,
-) {
+) -> Result<(), String> {
     for patch_operation in projects_to_copy.iter() {
-        let local_proj_path = format!("{}/", patch_operation.local_path.to_string_lossy());
+        let local_proj_path = format!("{}/", patch_operation.local_path.display());
         let remote_proj_path = format!(
             "{}:remote-builds/{}",
             build_server,
@@ -217,39 +200,39 @@ fn copy_patches_to_remote(
             .arg(".*")
             .arg("--rsync-path")
             .arg("mkdir -p remote-builds && rsync")
-            .arg(local_proj_path)
-            .arg(remote_proj_path)
+            .arg(&local_proj_path)
+            .arg(&remote_proj_path)
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .stdin(Stdio::inherit())
             .output()
-            .unwrap_or_else(|e| {
-                error!("Failed to transfer project to build server (error: {})", e);
-                exit(-4);
-            });
+            .map_err(|err| {
+                format!(
+                    "Failed to transfer project {} to build server (error: {})",
+                    local_proj_path, err
+                )
+            })?;
     }
 
-    let local_toml_path = patched_cargo_file.path().to_string_lossy();
-    let remote_toml_path = format!("{}:{}/Cargo.toml", build_server, build_path);
-    log::debug!(
-        "Transferring Cargo.toml from {} to {}.",
-        &local_toml_path,
-        &remote_toml_path
-    );
-    let mut rsync_toml = Command::new("rsync");
-    rsync_toml
-        .arg("-vz")
-        .arg(PROGRESS_FLAG)
-        .arg(local_toml_path.to_string())
-        .arg(remote_toml_path)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .stdin(Stdio::inherit())
-        .output()
-        .unwrap_or_else(|e| {
-            error!("Failed to transfer project to build server (error: {})", e);
-            exit(-4);
-        });
+    let remote_toml_path = format!("{}/Cargo.toml", build_path);
+    log::debug!("Writing adjusted Cargo.toml to {}.", &remote_toml_path);
+    let mut child = Command::new("ssh")
+        .args(&[build_server, "-T", "cat > ", &remote_toml_path])
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(patched_cargo_doc.to_string().as_bytes())
+        .map_err(|err| format!("Unable to copy patched Cargo.toml to remote: {}", err))?;
+
+    child
+        .wait_with_output()
+        .map_err(|err| format!("Unable to copy patched Cargo.toml to remote: {}", err))?;
+    Ok(())
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-use camino::Utf8PathBuf;
+use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::process::{exit, Command, Stdio};
 use structopt::StructOpt;
@@ -86,12 +86,12 @@ enum Opts {
 
 /// Tries to parse the file [`config_path`]. Logs warnings and returns [`None`] if errors occur
 /// during reading or parsing, [`Some(Value)`] otherwise.
-fn config_from_file(config_path: &Utf8PathBuf) -> Option<Value> {
+fn config_from_file(config_path: &PathBuf) -> Option<Value> {
     let config_file = std::fs::read_to_string(config_path)
         .map_err(|e| {
             warn!(
                 "Can't parse config file '{}' (error: {})",
-                config_path.to_string(),
+                config_path.display(),
                 e
             );
         })
@@ -102,7 +102,7 @@ fn config_from_file(config_path: &Utf8PathBuf) -> Option<Value> {
         .map_err(|e| {
             warn!(
                 "Can't parse config file '{}' (error: {})",
-                config_path.to_string(),
+                config_path.display(),
                 e
             );
         })
@@ -142,7 +142,7 @@ fn main() {
             exit(1)
         }
     };
-    let project_dir = project_metadata.workspace_root.clone();
+    let project_dir = project_metadata.workspace_root.clone().into_std_path_buf();
     debug!("Project dir: {:?}", project_dir);
 
     let mut manifest_path = project_dir.clone();
@@ -158,11 +158,11 @@ fn main() {
                 debug!("No metadata found. Setting the remote dir name like the local. Or use --manifest_path for execute");
                 project_dir.file_name().unwrap()
             },
-            |p| &p.name,
+            |p| OsStr::new(&p.name),
         );
 
     let build_path_folder = "~/remote-builds/";
-    let build_path = format!("{}/{}/", build_path_folder, project_name);
+    let build_path = format!("{}/{}/", build_path_folder, project_name.to_string_lossy());
 
     debug!("Project name: {:?}", project_name);
     let configs = vec![
@@ -170,12 +170,7 @@ fn main() {
         xdg::BaseDirectories::with_prefix("cargo-remote")
             .ok()
             .and_then(|base| base.find_config_file("cargo-remote.toml"))
-            .and_then(|p| {
-                config_from_file(
-                    &Utf8PathBuf::from_path_buf(p)
-                        .expect("Unable to transform pathbuf into Utf8PathBuf"),
-                )
-            }),
+            .and_then(|p| config_from_file(&p)),
     ];
 
     // TODO: move Opts::Remote fields into own type and implement complete_from_config(&mut self, config: &Value)
@@ -210,7 +205,7 @@ fn main() {
     rsync_to
         .arg("--rsync-path")
         .arg("mkdir -p remote-builds && rsync")
-        .arg(format!("{}/", project_dir.to_string()))
+        .arg(format!("{}/", project_dir.display()))
         .arg(format!("{}:{}", build_server, build_path))
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
@@ -226,7 +221,7 @@ fn main() {
             log::error!("Could not transfer patched workspaces to remote: {}", err);
         });
     } else {
-        log::debug!("Patches were found but ignores due to command line flag.");
+        log::debug!("Potential patches will be ignored due to command line flag.");
     }
 
     debug!("Build ENV: {:?}", build_env);
@@ -269,7 +264,7 @@ fn main() {
                 "{}:{}target/{}",
                 build_server, build_path, file_name
             ))
-            .arg(format!("{}/target/{}", project_dir.to_string(), file_name))
+            .arg(format!("{}/target/{}", project_dir.display(), file_name))
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .stdin(Stdio::inherit())
@@ -292,7 +287,7 @@ fn main() {
             .arg("--compress")
             .arg(PROGRESS_FLAG)
             .arg(format!("{}:{}/Cargo.lock", build_server, build_path))
-            .arg(format!("{}/Cargo.lock", project_dir.to_string()))
+            .arg(format!("{}/Cargo.lock", project_dir.display()))
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .stdin(Stdio::inherit())
