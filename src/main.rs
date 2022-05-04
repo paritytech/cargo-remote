@@ -188,38 +188,22 @@ fn main() {
 
     debug!("Transferring sources to build server.");
     // transfer project to build server
-    let mut rsync_to = Command::new("rsync");
-    rsync_to
-        .arg("-a")
-        .arg("-q")
-        .arg("--delete")
-        .arg("--compress")
-        .arg(PROGRESS_FLAG)
-        .arg("--exclude")
-        .arg("target");
-
-    if !hidden {
-        rsync_to.arg("--exclude").arg(".*");
-    }
-
-    rsync_to
-        .arg("--rsync-path")
-        .arg("mkdir -p remote-builds && rsync")
-        .arg(format!("{}/", project_dir.display()))
-        .arg(format!("{}:{}", build_server, build_path))
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .stdin(Stdio::inherit())
-        .output()
-        .unwrap_or_else(|e| {
-            error!("Failed to transfer project to build server (error: {})", e);
-            exit(-4);
-        });
+    copy_to_remote(
+        &format!("{}/", project_dir.display()),
+        &format!("{}:{}", build_server, build_path),
+        hidden,
+    )
+    .unwrap_or_else(|e| {
+        error!("Failed to transfer project to build server (error: {})", e);
+        exit(-4);
+    });
 
     if !ignore_patches {
-        patches::handle_patches(&build_path, &build_server, manifest_path).unwrap_or_else(|err| {
-            log::error!("Could not transfer patched workspaces to remote: {}", err);
-        });
+        patches::handle_patches(&build_path, &build_server, manifest_path, hidden).unwrap_or_else(
+            |err| {
+                log::error!("Could not transfer patched workspaces to remote: {}", err);
+            },
+        );
     } else {
         log::debug!("Potential patches will be ignored due to command line flag.");
     }
@@ -255,7 +239,11 @@ fn main() {
         debug!("Transferring artifacts back to client.");
         let file_name = file_name.unwrap_or_else(String::new);
         Command::new("rsync")
-            .arg("-a")
+            .arg(if std::env::consts::OS == "macos" {
+                "-vrltogD"
+            } else {
+                "-a"
+            })
             .arg("-q")
             .arg("--delete")
             .arg("--compress")
@@ -281,7 +269,11 @@ fn main() {
     if !no_copy_lock {
         debug!("Transferring Cargo.lock file back to client.");
         Command::new("rsync")
-            .arg("-a")
+            .arg(if std::env::consts::OS == "macos" {
+                "-vrltogD"
+            } else {
+                "-a"
+            })
             .arg("-q")
             .arg("--delete")
             .arg("--compress")
@@ -304,4 +296,38 @@ fn main() {
     if !output.status.success() {
         exit(output.status.code().unwrap_or(1))
     }
+}
+
+pub fn copy_to_remote(
+    local_dir: &str,
+    remote_dir: &str,
+    hidden: bool,
+) -> Result<std::process::Output, std::io::Error> {
+    let mut rsync_to = Command::new("rsync");
+    rsync_to
+        .arg(if std::env::consts::OS == "macos" {
+            "-vrltogD"
+        } else {
+            "-a"
+        })
+        .arg("-q")
+        .arg("--delete")
+        .arg("--compress")
+        .arg(PROGRESS_FLAG)
+        .arg("--exclude")
+        .arg("target");
+
+    if !hidden {
+        rsync_to.arg("--exclude").arg(".*");
+    }
+
+    rsync_to
+        .arg("--rsync-path")
+        .arg("mkdir -p remote-builds && rsync")
+        .arg(local_dir)
+        .arg(remote_dir)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .stdin(Stdio::inherit())
+        .output()
 }

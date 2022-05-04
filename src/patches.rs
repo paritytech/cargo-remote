@@ -1,4 +1,4 @@
-use crate::PROGRESS_FLAG;
+use crate::copy_to_remote;
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::PathBuf;
@@ -18,6 +18,7 @@ pub fn handle_patches(
     build_path: &String,
     build_server: &String,
     manifest_path: PathBuf,
+    copy_hidden_files: bool,
 ) -> Result<(), String> {
     let cargo_file_content = std::fs::read_to_string(&manifest_path).map_err(|err| {
         format!(
@@ -31,7 +32,13 @@ pub fn handle_patches(
         extract_patched_crates_and_adjust_toml(cargo_file_content, |p| locate_workspace_folder(p))?;
 
     if let Some((patched_cargo_doc, project_list)) = maybe_patches {
-        copy_patches_to_remote(&build_path, &build_server, patched_cargo_doc, project_list)?;
+        copy_patches_to_remote(
+            &build_path,
+            &build_server,
+            patched_cargo_doc,
+            project_list,
+            copy_hidden_files,
+        )?;
     }
     Ok(())
 }
@@ -172,6 +179,7 @@ fn copy_patches_to_remote(
     build_server: &String,
     patched_cargo_doc: Document,
     projects_to_copy: Vec<PatchProject>,
+    copy_hidden_files: bool,
 ) -> Result<(), String> {
     for patch_operation in projects_to_copy.iter() {
         let local_proj_path = format!("{}/", patch_operation.local_path.display());
@@ -187,31 +195,12 @@ fn copy_patches_to_remote(
             &remote_proj_path
         );
         // transfer project to build server
-        let mut rsync_to = Command::new("rsync");
-        rsync_to
-            .arg("-a")
-            .arg("-q")
-            .arg("--delete")
-            .arg("--compress")
-            .arg(PROGRESS_FLAG)
-            .arg("--exclude")
-            .arg("target")
-            .arg("--exclude")
-            .arg(".*")
-            .arg("--rsync-path")
-            .arg("mkdir -p remote-builds && rsync")
-            .arg(&local_proj_path)
-            .arg(&remote_proj_path)
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .stdin(Stdio::inherit())
-            .output()
-            .map_err(|err| {
-                format!(
-                    "Failed to transfer project {} to build server (error: {})",
-                    local_proj_path, err
-                )
-            })?;
+        copy_to_remote(&local_proj_path, &remote_proj_path, copy_hidden_files).map_err(|err| {
+            format!(
+                "Failed to transfer project {} to build server (error: {})",
+                local_proj_path, err
+            )
+        })?;
     }
 
     let remote_toml_path = format!("{}/Cargo.toml", build_path);
