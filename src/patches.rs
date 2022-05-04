@@ -112,7 +112,11 @@ fn extract_patched_crates_and_adjust_toml<F: Fn(PathBuf) -> Result<PathBuf, Stri
     for inline_crate_table in patched_paths.unwrap() {
         // We only act if there is a path given for a crate
         if let Some(path) = inline_crate_table.get("path") {
-            let path = PathBuf::from(path.as_str().unwrap().clone());
+            let path = PathBuf::from(
+                path.as_str()
+                    .ok_or("Unable to get path from toml Value")?
+                    .clone(),
+            );
 
             // Check if the current crate is located in a subfolder of a workspace we
             // already know.
@@ -129,8 +133,10 @@ fn extract_patched_crates_and_adjust_toml<F: Fn(PathBuf) -> Result<PathBuf, Stri
                             err
                         )
                     })?;
-                    let workspace_folder_name =
-                        workspace_folder_path.file_name().unwrap().to_owned();
+                    let workspace_folder_name = workspace_folder_path
+                        .file_name()
+                        .ok_or("Unable to get file name from workspace folder.")?
+                        .to_owned();
 
                     let mut remote_folder = PathBuf::from("../");
                     remote_folder.push(workspace_folder_name.clone());
@@ -165,8 +171,12 @@ fn extract_patched_crates_and_adjust_toml<F: Fn(PathBuf) -> Result<PathBuf, Stri
                         format!("Unable to construct remote folder path: {}", err)
                     })?);
 
-                    inline_crate_table
-                        .insert("path", toml_edit::Value::from(new_path.to_str().unwrap()));
+                    inline_crate_table.insert(
+                        "path",
+                        toml_edit::Value::from(
+                            new_path.to_str().ok_or("Unable to modify path in toml.")?,
+                        ),
+                    );
                 }
             }
         }
