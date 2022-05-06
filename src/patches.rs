@@ -104,12 +104,14 @@ fn extract_patched_crates_and_adjust_toml<F: Fn(PathBuf) -> Result<PathBuf, Stri
                 .collect()
         });
 
-    if patched_paths.is_none() {
+    let patched_paths = if let Some(p) = patched_paths {
+        p
+    } else {
         log::debug!("No patches in project.");
         return Ok(None);
-    }
+    };
 
-    for inline_crate_table in patched_paths.unwrap() {
+    for inline_crate_table in patched_paths {
         // We only act if there is a path given for a crate
         if let Some(path) = inline_crate_table.get("path") {
             let path = PathBuf::from(
