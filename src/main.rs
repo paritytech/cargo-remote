@@ -113,8 +113,8 @@ fn config_from_file(config_path: &PathBuf) -> Option<Value> {
 
 fn main() {
     simple_logger::SimpleLogger::new()
-        .env()
         .with_level(log::LevelFilter::Error)
+        .env()
         .init()
         .unwrap();
 
