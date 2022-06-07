@@ -239,12 +239,9 @@ fn main() {
         debug!("Transferring artifacts back to client.");
         let file_name = file_name.unwrap_or_else(String::new);
         Command::new("rsync")
-            .arg(if std::env::consts::OS == "macos" {
-                "-vrltogD"
-            } else {
-                "-a"
-            })
-            .arg("-q")
+            .arg("--links")
+            .arg("--recursive")
+            .arg("--quiet")
             .arg("--delete")
             .arg("--compress")
             .arg(PROGRESS_FLAG)
@@ -269,12 +266,9 @@ fn main() {
     if !no_copy_lock {
         debug!("Transferring Cargo.lock file back to client.");
         Command::new("rsync")
-            .arg(if std::env::consts::OS == "macos" {
-                "-vrltogD"
-            } else {
-                "-a"
-            })
-            .arg("-q")
+            .arg("--links")
+            .arg("--recursive")
+            .arg("--quiet")
             .arg("--delete")
             .arg("--compress")
             .arg(PROGRESS_FLAG)
@@ -305,12 +299,9 @@ pub fn copy_to_remote(
 ) -> Result<std::process::Output, std::io::Error> {
     let mut rsync_to = Command::new("rsync");
     rsync_to
-        .arg(if std::env::consts::OS == "macos" {
-            "-vrltogD"
-        } else {
-            "-a"
-        })
-        .arg("-q")
+        .arg("--links")
+        .arg("--recursive")
+        .arg("--quiet")
         .arg("--delete")
         .arg("--compress")
         .arg(PROGRESS_FLAG)
