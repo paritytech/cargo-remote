@@ -6,7 +6,6 @@ variables:
   GIT_STRATEGY:                    fetch
   GIT_DEPTH:                       100
   CARGO_INCREMENTAL:               0
-  CARGO_TARGET_DIR:                "/ci-cache/${CI_PROJECT_NAME}/targets/${CI_COMMIT_REF_NAME}/${CI_JOB_NAME}"
   CI_IMAGE:                        "paritytech/ci-linux:production"
 
 .rust-info-script:                 &rust-info-script
@@ -15,14 +14,11 @@ variables:
   - rustup +nightly show
   - cargo +nightly --version
   - bash --version
-  - sccache -s
 
 .docker-env:                       &docker-env
   image:                           "${CI_IMAGE}"
   before_script:
     - *rust-info-script
-    - ./scripts/ci/pre_cache.sh
-    - sccache -s
   retry:
     max: 2
     when:
@@ -31,7 +27,7 @@ variables:
       - api_failure
   interruptible:                   true
   tags:
-    - linux-docker
+    - linux-docker-vm-c2
 
 cargo_audit:
   stage:                           audit
