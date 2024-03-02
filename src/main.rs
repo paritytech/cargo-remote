@@ -305,6 +305,7 @@ pub fn copy_to_remote(
     rsync_to
         .arg("--links")
         .arg("--recursive")
+        .arg("--times")
         .arg("--quiet")
         .arg("--delete")
         .arg("--compress")
