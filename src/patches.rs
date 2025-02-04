@@ -19,6 +19,7 @@ pub fn handle_patches(
     build_server: &String,
     manifest_path: PathBuf,
     copy_hidden_files: bool,
+    no_transfer_git: bool,
 ) -> Result<(), String> {
     let cargo_file_content = std::fs::read_to_string(&manifest_path).map_err(|err| {
         format!(
@@ -38,6 +39,7 @@ pub fn handle_patches(
             patched_cargo_doc,
             project_list,
             copy_hidden_files,
+            no_transfer_git,
         )?;
     }
     Ok(())
@@ -117,7 +119,6 @@ fn extract_patched_crates_and_adjust_toml<F: Fn(PathBuf) -> Result<PathBuf, Stri
             let path = PathBuf::from(
                 path.as_str()
                     .ok_or("Unable to get path from toml Value")?
-                    .clone(),
             );
 
             // Check if the current crate is located in a subfolder of a workspace we
@@ -192,6 +193,7 @@ fn copy_patches_to_remote(
     patched_cargo_doc: Document,
     projects_to_copy: Vec<PatchProject>,
     copy_hidden_files: bool,
+    no_transfer_git: bool,
 ) -> Result<(), String> {
     for patch_operation in projects_to_copy.iter() {
         let local_proj_path = format!("{}/", patch_operation.local_path.display());
@@ -207,7 +209,7 @@ fn copy_patches_to_remote(
             &remote_proj_path
         );
         // transfer project to build server
-        copy_to_remote(&local_proj_path, &remote_proj_path, copy_hidden_files).map_err(|err| {
+        copy_to_remote(&local_proj_path, &remote_proj_path, copy_hidden_files, no_transfer_git).map_err(|err| {
             format!(
                 "Failed to transfer project {} to build server (error: {})",
                 local_proj_path, err
