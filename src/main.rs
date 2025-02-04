@@ -82,7 +82,12 @@ enum Opts {
         #[structopt(help = "ignore patches", long = "ignore-patches")]
         ignore_patches: bool,
 
-        #[structopt(help = "do not transfer .git", short = "G", long = "no-transfer-git")]
+        #[structopt(
+            help = "Do not transfer .git. Note that .git is hidden so .git is transferred only \
+                    if --transfer-hidden|-h is set and --no-transfer-git|-G is not set",
+            short = "G",
+            long = "no-transfer-git"
+        )]
         no_transfer_git: bool,
     },
 }
