@@ -208,11 +208,16 @@ fn main() {
     });
 
     if !ignore_patches {
-        patches::handle_patches(&build_path, &build_server, manifest_path, hidden, no_transfer_git).unwrap_or_else(
-            |err| {
-                log::error!("Could not transfer patched workspaces to remote: {}", err);
-            },
-        );
+        patches::handle_patches(
+            &build_path,
+            &build_server,
+            manifest_path,
+            hidden,
+            no_transfer_git,
+        )
+        .unwrap_or_else(|err| {
+            log::error!("Could not transfer patched workspaces to remote: {}", err);
+        });
     } else {
         log::debug!("Potential patches will be ignored due to command line flag.");
     }

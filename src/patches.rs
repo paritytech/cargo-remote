@@ -116,10 +116,7 @@ fn extract_patched_crates_and_adjust_toml<F: Fn(PathBuf) -> Result<PathBuf, Stri
     for inline_crate_table in patched_paths {
         // We only act if there is a path given for a crate
         if let Some(path) = inline_crate_table.get("path") {
-            let path = PathBuf::from(
-                path.as_str()
-                    .ok_or("Unable to get path from toml Value")?
-            );
+            let path = PathBuf::from(path.as_str().ok_or("Unable to get path from toml Value")?);
 
             // Check if the current crate is located in a subfolder of a workspace we
             // already know.
@@ -209,7 +206,13 @@ fn copy_patches_to_remote(
             &remote_proj_path
         );
         // transfer project to build server
-        copy_to_remote(&local_proj_path, &remote_proj_path, copy_hidden_files, no_transfer_git).map_err(|err| {
+        copy_to_remote(
+            &local_proj_path,
+            &remote_proj_path,
+            copy_hidden_files,
+            no_transfer_git,
+        )
+        .map_err(|err| {
             format!(
                 "Failed to transfer project {} to build server (error: {})",
                 local_proj_path, err
