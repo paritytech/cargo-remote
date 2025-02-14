@@ -88,7 +88,7 @@ brew install rsync
 See also [#10](https://github.com/sgeisler/cargo-remote/issues/10).
 
 ### SSH Configuration Suggestion
-Establishing SSH connection for every remote call takes time. It is recommended to reuse existing SSH sessions by enabling SSH multiplexing. Add an entry like the following to your SSH config file (`~/.ssh/config`):
+Establishing a new SSH connection for every remote call takes time. It is recommended to reuse existing SSH sessions by enabling SSH multiplexing. Add an entry like the following to your SSH config file (`~/.ssh/config`):
 
 ```sshconfig
 Host your-remote-build-machine
