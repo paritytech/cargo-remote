@@ -91,7 +91,7 @@ See also [#10](https://github.com/sgeisler/cargo-remote/issues/10).
 Establishing SSH connection for every remote call takes time. It is recommended to reuse existing SSH sessions by enabling SSH multiplexing. Add an entry like the following to your SSH config file (`~/.ssh/config`):
 
 ```sshconfig
-Host remote-build
+Host your-remote-build-machine
     HostName your.remote.server
     User yourusername
     Port p
