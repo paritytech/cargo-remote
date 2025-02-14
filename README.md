@@ -86,3 +86,18 @@ It was reported that the `rsync` version shipped with MacOS doesn't support the 
 brew install rsync
 ```
 See also [#10](https://github.com/sgeisler/cargo-remote/issues/10).
+
+### SSH Configuration Suggestion
+Establishing a new SSH connection for every remote call takes time. It is recommended to reuse existing SSH sessions by enabling SSH multiplexing. Add an entry like the following to your SSH config file (`~/.ssh/config`):
+
+```sshconfig
+Host your-remote-build-machine
+    HostName your.remote.server
+    User yourusername
+    Port p
+    IdentityFile ~/.ssh/your_private_key
+    IdentitiesOnly yes
+    ControlMaster auto
+    ControlPath ~/.ssh/control:%C
+    ControlPersist 600
+```
