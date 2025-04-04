@@ -114,11 +114,7 @@ fn extract_patched_crates_and_adjust_toml<F: Fn(PathBuf) -> Result<PathBuf, Stri
     for inline_crate_table in patched_paths {
         // We only act if there is a path given for a crate
         if let Some(path) = inline_crate_table.get("path") {
-            let path = PathBuf::from(
-                path.as_str()
-                    .ok_or("Unable to get path from toml Value")?
-                    .clone(),
-            );
+            let path = PathBuf::from(path.as_str().ok_or("Unable to get path from toml Value")?);
 
             // Check if the current crate is located in a subfolder of a workspace we
             // already know.
