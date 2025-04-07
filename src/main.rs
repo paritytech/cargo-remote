@@ -81,6 +81,14 @@ enum Opts {
 
         #[structopt(help = "ignore patches", long = "ignore-patches")]
         ignore_patches: bool,
+
+        #[structopt(
+            help = "Do not transfer .git. Note that .git is hidden so .git is transferred only \
+                    if --transfer-hidden|-h is set and --no-transfer-git|-G is not set",
+            short = "G",
+            long = "no-transfer-git"
+        )]
+        no_transfer_git: bool,
     },
 }
 
@@ -130,6 +138,7 @@ fn main() {
         command,
         options,
         ignore_patches,
+        no_transfer_git,
     } = Opts::from_args();
 
     let mut metadata_cmd = cargo_metadata::MetadataCommand::new();
@@ -196,6 +205,7 @@ fn main() {
         &format!("{}/", project_dir.display()),
         &format!("{}:{}", build_server, build_path),
         hidden,
+        no_transfer_git,
     )
     .unwrap_or_else(|e| {
         error!("Failed to transfer project to build server (error: {})", e);
@@ -203,11 +213,16 @@ fn main() {
     });
 
     if !ignore_patches {
-        patches::handle_patches(&build_path, &build_server, manifest_path, hidden).unwrap_or_else(
-            |err| {
-                log::error!("Could not transfer patched workspaces to remote: {}", err);
-            },
-        );
+        patches::handle_patches(
+            &build_path,
+            &build_server,
+            manifest_path,
+            hidden,
+            no_transfer_git,
+        )
+        .unwrap_or_else(|err| {
+            log::error!("Could not transfer patched workspaces to remote: {}", err);
+        });
     } else {
         log::debug!("Potential patches will be ignored due to command line flag.");
     }
@@ -300,6 +315,7 @@ pub fn copy_to_remote(
     local_dir: &str,
     remote_dir: &str,
     hidden: bool,
+    no_transfer_git: bool,
 ) -> Result<std::process::Output, std::io::Error> {
     let mut rsync_to = Command::new("rsync");
     rsync_to
@@ -315,6 +331,10 @@ pub fn copy_to_remote(
 
     if !hidden {
         rsync_to.arg("--exclude").arg(".*");
+    }
+
+    if no_transfer_git {
+        rsync_to.arg("--exclude").arg(".git");
     }
 
     rsync_to
